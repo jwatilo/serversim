@@ -1,14 +1,28 @@
 #!/usr/bin/env python3.6
 
-import select
-import socket
-import struct
-import sys
-import time
-import datetime
-import os
-
 from concurrent.futures import ThreadPoolExecutor
+from datetime           import datetime
+from os                 import environ
+from os                 import getpid
+from select             import EPOLLIN
+from select             import EPOLLHUP
+from select             import EPOLLERR
+from select             import epoll
+from socket             import AF_INET
+from socket             import IPPROTO_TCP
+from socket             import SO_REUSEADDR
+from socket             import SO_KEEPALIVE
+from socket             import SO_LINGER
+from socket             import SOCK_STREAM
+from socket             import SOL_SOCKET
+from socket             import SHUT_WR
+from socket             import SHUT_RD
+from socket             import TCP_NODELAY
+from socket             import gethostname
+from socket             import socket
+from struct             import pack
+from sys                import exit
+from time               import sleep
 
 TCP_BACKLOG   = 1024
 MAX_THREADS   = 128
@@ -23,9 +37,9 @@ CONTAINER_ID  = None
 
 def say( msg, level=LVL_INFO ):
     if CONTAINERIZED:
-        message = '{1:} serversim.py: {2:}'.format( level, msg )
+        message = '{1:} listener.py: {2:}'.format( level, msg )
     else:
-        message = '{0:%Y-%m-%d %H:%M:%S} {1:} serversim.py[{2:}]: {3:}'.format( datetime.datetime.now(), level, os.getpid(), msg )
+        message = '{0:%Y-%m-%d %H:%M:%S} {1:} listener.py[{2:}]: {3:}'.format( datetime.now(), level, getpid(), msg )
     print( message )
 
 def respond( num, clientsocket, text ):
@@ -33,8 +47,8 @@ def respond( num, clientsocket, text ):
     clientsocket.sendall( text.encode() )
 
 def handle_connection( num, clientsocket, addr ):
-    clientsocket.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEADDR, 1 )
-    clientsocket.setsockopt( socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1 )
+    clientsocket.setsockopt( SOL_SOCKET, SO_REUSEADDR, 1 )
+    clientsocket.setsockopt( SOL_SOCKET, SO_KEEPALIVE, 1 )
 
     # read incoming request
     data = None
@@ -49,11 +63,11 @@ def handle_connection( num, clientsocket, addr ):
         say( 'Thread {} - REQUEST: {}'.format( num, data ) )
 
         if '<ucm>' in data:
-            clientsocket.sendall( struct.pack( '!i', 16 ) )
-            clientsocket.sendall( struct.pack( '!i', 2 ) )
+            clientsocket.sendall( pack( '!i', 16 ) )
+            clientsocket.sendall( pack( '!i', 2 ) )
             clientsocket.sendall( str.encode( 'REST00010001OK' ) )
             say( 'Thread {} - ASV2 message received, reply sent'.format( num ) )
-            time.sleep( 100 / 1000 ) # sleep for 100 ms go give client time to read reply
+            sleep( 100 / 1000 ) # sleep for 100 ms go give client time to read reply
 
         else:
             tokens = data.split()
@@ -80,7 +94,7 @@ def handle_connection( num, clientsocket, addr ):
                     try:
                         ms = int( tokens[1] )
                         say( 'Thread {} - Waiting for {} milliseconds...'.format( num, ms ) )
-                        time.sleep( ms / 1000 )
+                        sleep( ms / 1000 )
                         respond( num, clientsocket, 'OK' )
                     except ValueError:
                         respond( num, clientsocket, 'ERR_INVALID_WAIT_TIME' )
@@ -89,9 +103,9 @@ def handle_connection( num, clientsocket, addr ):
 
             elif command == 'HELP':
                 respond( num, clientsocket, '=-=-=-=-=-=-=-=-=-=-=\n'
-                                          + ' Available Commands  \n'
+                                          + ' Available Commands\n'
                                           + '=-=-=-=-=-=-=-=-=-=-=\n'
-                                          + '<ucm>.*</ucm> ...Respond to ASv2 message\n'
+                                          + '<ucm>.*</ucm> ... Respond to ASv2 message\n'
                                           + 'HELP ............ Show help\n'
                                           + 'ECHO <str> ...... Where <str> is a string to echo back\n'
                                           + 'ERROR <str> ..... Print <str> as an ERROR message\n'
@@ -103,6 +117,7 @@ def handle_connection( num, clientsocket, addr ):
             else:
                 respond( num, clientsocket, 'ERR_INVALID_REQUEST' )
 
+    clientsocket.shutdown( SHUT_WR )
     clientsocket.close()
 
 def leave():
@@ -110,13 +125,13 @@ def leave():
         say( 'Exit Code: {}'.format( EXIT_CODE ) )
     else:
         say( 'Exit Code: {}'.format( EXIT_CODE ), level=LVL_CRITICAL )
-    sys.exit( EXIT_CODE )
+    exit( EXIT_CODE )
 
 def set_containerized():
     # check to see if I'm running in a container
     global CONTAINER_ID
     global CONTAINERIZED
-    CONTAINER_ID = socket.gethostname()
+    CONTAINER_ID = gethostname()
     docker_string = '/docker-{}'.format( CONTAINER_ID[:12] )
     try:
         with open( '/proc/1/cgroup', 'r' ) as f:
@@ -128,11 +143,12 @@ def set_containerized():
     except Exception as e:
         say( 'Unable to open file [{}]: {}'.format( '/proc/1/cgroup', str( e ) ), level=LVL_WARNING )
 
-if __name__ == '__main__':
+def start_listener():
+    global SHUT_ME_DOWN
     set_containerized()
 
     # get port
-    port = os.environ.get( 'TCP_SERVER_PORT' )
+    port = environ.get( 'TCP_SERVER_PORT' )
     if port is None:
         say( 'Environment variable TCP_SERVER_PORT was not set', level=LVL_CRITICAL )
         EXIT_CODE = 1
@@ -169,7 +185,7 @@ if __name__ == '__main__':
 
     # create a socket object
     say( 'Creating listener socket' )
-    serversocket = socket.socket( socket.AF_INET, socket.SOCK_STREAM )
+    serversocket = socket( AF_INET, SOCK_STREAM )
 
     # bind to the port
     say( 'Binding to port {}'.format( port ) )
@@ -178,16 +194,16 @@ if __name__ == '__main__':
     # backlog up to TCP_BACKLOG requests
     serversocket.listen( TCP_BACKLOG  )
 
-    # set socket options
-    serversocket.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEADDR, 1 )
-    serversocket.setsockopt( socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1 )
-    serversocket.setsockopt( socket.SOL_SOCKET, socket.SO_LINGER, struct.pack( 'ii', 1, 60 ) )
+    # set socket options 
+    serversocket.setsockopt( SOL_SOCKET, SO_REUSEADDR, 1 )
+    serversocket.setsockopt( SOL_SOCKET, SO_KEEPALIVE, 1 )
+    serversocket.setsockopt( SOL_SOCKET, SO_LINGER, pack( 'ii', 1, 0 ) )
 
     # make it a non-blocking socket and use polling model
     serversocket.setblocking( 0 )
-    epoll_mask = select.EPOLLIN | select.EPOLLHUP | select.EPOLLERR
-    epoll      = select.epoll()
-    epoll.register( serversocket.fileno(), epoll_mask )
+    epoll_mask    = EPOLLIN | EPOLLHUP | EPOLLERR
+    polling_model = epoll()
+    polling_model.register( serversocket.fileno(), epoll_mask )
     sockets    = {}
     addresses  = {}
     request_number = 0
@@ -198,29 +214,29 @@ if __name__ == '__main__':
 
         try:
             # poll for events
-            events = epoll.poll( 0.2 )
+            events = polling_model.poll( 0.2 )
 
             # evaluate the socket events
             for event_fd, event in events:
 
-                if (event & select.EPOLLERR) or (event & select.EPOLLHUP):
+                if (event & EPOLLERR) or (event & EPOLLHUP):
                     say( 'Client connection lost' )
                     if event_fd == serversocket.fileno():
                         SHUT_ME_DOWN = True
                     else:
-                        epoll.unregister( event_fd )
+                        polling_model.unregister( event_fd )
                         sockets[event_fd].close()
                         del sockets[event_fd]
 
-                elif event & select.EPOLLIN:
+                elif event & EPOLLIN:
                     try:
                         if event_fd == serversocket.fileno():
                             clientsock, address = serversocket.accept()
                             sockets[clientsock.fileno()] = clientsock
                             addresses[clientsock.fileno()] = address
                             clientsock.setblocking( False )
-                            clientsock.setsockopt( socket.IPPROTO_TCP, socket.TCP_NODELAY, 1 )
-                            epoll.register( clientsock.fileno(), epoll_mask )
+                            clientsock.setsockopt( IPPROTO_TCP, TCP_NODELAY, 1 )
+                            polling_model.register( clientsock.fileno(), epoll_mask )
                         else:
                             # add the client connection to the thread pool
                             request_number += 1
@@ -247,7 +263,7 @@ if __name__ == '__main__':
                         say( 'Shutting down due to exception: {}'.format( str( e ) ) )
                         EXIT_CODE = 4
                         SHUT_ME_DOWN = True
-                        epoll.unregister( event_fd )
+                        polling_model.unregister( event_fd )
                         sockets[event_fd].close()
                         del sockets[event_fd]
 
@@ -260,6 +276,10 @@ if __name__ == '__main__':
     pool.shutdown()
     for sk in sockets.keys():
         sockets[sk].close()
-    epoll.close()
+    polling_model.close()
+    serversocket.shutdown( SHUT_RD )
     serversocket.close()
     leave()
+
+if __name__ == '__main__':
+    start_listener()

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.6
+#!/usr/bin/env python3
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime           import datetime

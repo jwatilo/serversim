@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.6
+#!/usr/bin/env python3
 
 from argparse           import ArgumentParser
 from socket             import AF_INET

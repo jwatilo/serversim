@@ -35,7 +35,7 @@ def parse_options():
                        )
     return vars( parser.parse_args() )
 
-if __name__ == '__main__':
+def start_sender():
     options = parse_options()
 
     # create a socket object
@@ -66,3 +66,5 @@ if __name__ == '__main__':
 
     exit( 0 )
 
+if __name__ == '__main__':
+    start_sender()

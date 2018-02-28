@@ -12,16 +12,15 @@ from socket             import SO_LINGER
 from socket             import SHUT_RDWR
 from socket             import socket
 from struct             import pack
-from subprocess         import Popen 
 from time               import sleep
+from threading          import Thread
 from unittest           import main 
 from unittest           import TestCase
 
-from serversim.listener import start_listener
-
+from service            import listener
+from client             import sender 
 
 TCP_SERVER_PORT = 9999 
-
 
 def find_free_port():
     with closing( socket( AF_INET, SOCK_STREAM ) ) as s:
@@ -30,16 +29,14 @@ def find_free_port():
 
 def start_service():
     global TCP_SERVER_PORT
-    test_script_directory =  path.dirname( path.abspath( __file__ ) )
-    service_module = path.join( test_script_directory, '..', 'service', 'listener.py' )
     TCP_SERVER_PORT = find_free_port()
     environ[ 'TCP_SERVER_PORT' ] = str( TCP_SERVER_PORT )
-    service_process = Popen( [ service_module ] )
+    service_thread = Thread( target=listener.start_listener )
+    service_thread.start()
 
     # give the service a moment to get ready
     sleep( 1 )
-    return service_process
-
+    return service_thread
 
 def send_message_to_service( message, expected_response ):
     global TCP_SERVER_PORT
@@ -68,15 +65,17 @@ def send_message_to_service( message, expected_response ):
 
     return response
     
-def stop_service( service_process ):
-    send_message_to_service( 'shutdown', 'OK' ) ;
-    return service_process.wait() 
+def stop_service( service_thread ):
+    if service_thread is not None:
+        send_message_to_service( 'shutdown', 'OK' ) ;
+        service_thread.join()
+        service_thread = None
 
 class ServiceTest( TestCase ): 
 
     @classmethod
     def setUpClass( cls ):
-        cls.service_process = start_service()
+        cls.service_thread = start_service()
 
     def test_0001_ping( self ):
         expected_response = 'OK'
@@ -120,7 +119,7 @@ class ServiceTest( TestCase ):
 
     @classmethod
     def tearDownClass( cls ):
-        stop_service( cls.service_process )
+        stop_service( cls.service_thread )
         pass
 
 if __name__ == '__main__':

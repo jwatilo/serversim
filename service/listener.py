@@ -56,7 +56,7 @@ def handle_connection( num, clientsocket, addr ):
         data = clientsocket.recv( 2048 )
 
     # evalute and reply
-    if data is not None:
+    if data is not None and len( data ) > 0:
         say( 'Thread {} - Got request from {}'.format( num, str( addr ) ) )
 
         data = data.decode().strip()
